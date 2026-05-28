@@ -290,6 +290,76 @@ j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
     }
     .save-confirm.visible { opacity: 1; }
 
+    /* ── Quick-action buttons ─────────────────────────────────────────── */
+    .quick-actions { display: flex; gap: 10px; }
+    .btn-accept-all { background: var(--green); color: #fff; }
+
+    /* ── Allow tooltip to escape the diagnostic card ─────────────────── */
+    .diagnostic .card          { overflow: visible; }
+    .diagnostic .card-head     { border-radius: var(--radius) var(--radius) 0 0; }
+
+    /* ── Info icon + tooltip ──────────────────────────────────────────── */
+    .info-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 15px; height: 15px;
+      border-radius: 50%;
+      background: var(--grey-3);
+      color: var(--grey-5);
+      font-size: 9px;
+      font-weight: 700;
+      cursor: default;
+      position: relative;
+      margin-left: 5px;
+      vertical-align: middle;
+      text-transform: none;
+      letter-spacing: 0;
+    }
+    .info-tip {
+      display: none;
+      position: absolute;
+      left: 50%;
+      bottom: calc(100% + 7px);
+      transform: translateX(-50%);
+      width: 260px;
+      background: var(--grey-9);
+      color: #f3f4f6;
+      font-size: 12px;
+      font-weight: 400;
+      line-height: 1.55;
+      padding: 10px 12px;
+      border-radius: 6px;
+      text-transform: none;
+      letter-spacing: 0;
+      z-index: 20;
+      box-shadow: 0 4px 14px rgba(0,0,0,.30);
+      pointer-events: none;
+    }
+    .info-tip::after {
+      content: '';
+      position: absolute;
+      top: 100%; left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-top-color: var(--grey-9);
+    }
+    .info-icon:hover .info-tip,
+    .info-icon:focus .info-tip { display: block; }
+
+    /* ── wait_for_update indicator ────────────────────────────────────── */
+    .wfu-line {
+      font-size: 12px;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      padding: 6px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--grey-3);
+      background: var(--grey-1);
+    }
+    .wfu-open   { color: var(--blue); border-color: #bfdbfe; background: #eff6ff; }
+    .wfu-closed { color: var(--grey-5); }
+    .wfu-na     { color: var(--grey-5); }
+
     /* ── Diagnostic panel ─────────────────────────────────────────── */
     .diagnostic .card-body {
       display: flex;
@@ -440,6 +510,13 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
           <hr class="divider">
 
+          <div class="quick-actions">
+            <button class="btn btn-sm btn-accept-all" id="btn-accept-all">Accept all</button>
+            <button class="btn btn-secondary btn-sm"  id="btn-reject-all">Reject all</button>
+          </div>
+
+          <hr class="divider">
+
           <div class="consent-actions">
             <button class="btn btn-primary btn-sm"   id="btn-save">Save preferences</button>
             <button class="btn btn-secondary btn-sm" id="btn-reset">Reset consent</button>
@@ -476,6 +553,15 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
                 <div class="signal-val denied" id="diag-ad_personalization">denied</div>
               </div>
             </div>
+          </div>
+
+          <div>
+            <div class="diag-label">wait_for_update window
+              <span class="info-icon" tabindex="0">i
+                <span class="info-tip">On a fresh visit (no cookie), GTM waits up to 500&nbsp;ms before firing tags — giving your CMP time to call gtag('consent',&nbsp;'update',&nbsp;…). Tags fire with whatever state is set when the window closes. If no update arrives, they fire with the denied defaults. When a cookie is already present, consent is known upfront so wait_for_update is set to 0 and tags fire immediately.</span>
+              </span>
+            </div>
+            <div id="diag-wfu" class="wfu-line"></div>
           </div>
 
           <div>
@@ -574,6 +660,41 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
         msg.classList.add('visible');
         setTimeout(function () { msg.classList.remove('visible'); }, 2500);
       });
+
+      /* ── Accept all / Reject all ─────────────────────────────── */
+      document.getElementById('btn-accept-all').addEventListener('click', function () {
+        document.getElementById('tog-analytics').checked  = true;
+        document.getElementById('tog-advertising').checked = true;
+        document.getElementById('btn-save').click();
+      });
+      document.getElementById('btn-reject-all').addEventListener('click', function () {
+        document.getElementById('tog-analytics').checked  = false;
+        document.getElementById('tog-advertising').checked = false;
+        document.getElementById('btn-save').click();
+      });
+
+      /* ── wait_for_update countdown (fresh visit only) ─────────── */
+      var wfuEl = document.getElementById('diag-wfu');
+      if (wfuEl) {
+        if (!stored) {
+          var WFU_MS = 500, wfuStart = Date.now();
+          wfuEl.className  = 'wfu-line wfu-open';
+          wfuEl.textContent = 'Open — ' + WFU_MS + ' ms remaining';
+          var wfuTick = setInterval(function () {
+            var left = WFU_MS - (Date.now() - wfuStart);
+            if (left <= 0) {
+              clearInterval(wfuTick);
+              wfuEl.textContent = 'Closed — 500 ms window expired';
+              wfuEl.className  = 'wfu-line wfu-closed';
+            } else {
+              wfuEl.textContent = 'Open — ' + left + ' ms remaining';
+            }
+          }, 30);
+        } else {
+          wfuEl.textContent = 'N/A — cookie present, wait_for_update: 0';
+          wfuEl.className  = 'wfu-line wfu-na';
+        }
+      }
 
       /* ── Reset consent ────────────────────────────────────────── */
       document.getElementById('btn-reset').addEventListener('click', function () {
