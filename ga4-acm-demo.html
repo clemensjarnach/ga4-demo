@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GA4 Advanced Consent Mode — PoC Demo</title>
+
+  <!-- ============================================================
+       BLOCK 1 — Consent bootstrap
+       Must remain first. Initialises dataLayer, instruments gtag,
+       reads poc_consent cookie, and fires gtag('consent','default')
+       BEFORE GTM loads.
+       ============================================================ -->
+  <script>
+    window.dataLayer = window.dataLayer || [];
+
+    /* Internal state shared between consent bootstrap and UI */
+    window._poc = {
+      consentState: {
+        analytics_storage:  'denied',
+        ad_storage:         'denied',
+        ad_user_data:       'denied',
+        ad_personalization: 'denied'
+      },
+      callLog: []   /* only consent calls are appended */
+    };
+
+    /* Instrumented gtag wrapper ─────────────────────────────────
+       Intercepts consent calls to update internal state and the
+       diagnostic log, then forwards everything to dataLayer via
+       the standard Arguments-object push (preserves GTM semantics). */
+    window.gtag = function () {
+      var a   = arguments;
+      var cmd = a[0], sub = a[1], params = a[2] || null;
+
+      var now = new Date();
+      var ts  = now.toTimeString().slice(0, 8) + '.' +
+                String(now.getMilliseconds()).padStart(3, '0');
+
+      if (cmd === 'consent' && (sub === 'default' || sub === 'update') && params) {
+        ['analytics_storage', 'ad_storage', 'ad_user_data', 'ad_personalization']
+          .forEach(function (s) {
+            if (params[s]) window._poc.consentState[s] = params[s];
+          });
+        window._poc.callLog.push({ ts: ts, sub: sub, params: params });
+        /* Refresh diagnostic if DOM is already ready; no-op otherwise */
+        if (typeof _renderDiag === 'function') _renderDiag();
+      }
+
+      dataLayer.push(a);
+    };
+
+    /* ── Cookie helpers ──────────────────────────────────────────── */
+    function _readCookie(name) {
+      var pairs = document.cookie.split('; ');
+      for (var i = 0; i < pairs.length; i++) {
+        if (pairs[i].indexOf(name + '=') === 0) {
+          try {
+            return JSON.parse(decodeURIComponent(pairs[i].slice(name.length + 1)));
+          } catch (e) { return null; }
+        }
+      }
+      return null;
+    }
+    function _writeCookie(name, val, maxAge) {
+      document.cookie = name + '=' + encodeURIComponent(JSON.stringify(val)) +
+        '; max-age=' + maxAge + '; path=/; SameSite=Lax';
+    }
+    function _deleteCookie(name) {
+      document.cookie = name + '=; max-age=0; path=/';
+    }
+
+    /* ── Apply consent defaults (must run before GTM snippet) ────── */
+    (function () {
+      var s = _readCookie('poc_consent');
+      if (s) {
+        gtag('consent', 'default', {
+          analytics_storage:  s.analytics_storage  || 'denied',
+          ad_storage:         s.ad_storage         || 'denied',
+          ad_user_data:       s.ad_user_data        || 'denied',
+          ad_personalization: s.ad_personalization || 'denied',
+          wait_for_update: 0
+        });
+      } else {
+        gtag('consent', 'default', {
+          analytics_storage:  'denied',
+          ad_storage:         'denied',
+          ad_user_data:       'denied',
+          ad_personalization: 'denied',
+          wait_for_update: 500
+        });
+      }
+    })();
+  </script>
+
+  <!-- ============================================================
+       BLOCK 2 — GTM snippet
+       Replace GTM-XXXXXXX with your container ID and uncomment.
+       This block must remain AFTER the consent defaults above.
+       ============================================================ -->
+  <!--
+  <script>(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+  new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+  j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+  'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+  })(window,document,'script','dataLayer','GTM-XXXXXXX');</script>
+  -->
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --blue:      #1a56db;
+      --blue-lt:   #e8f0fe;
+      --green:     #057a55;
+      --green-lt:  #def7ec;
+      --red:       #c81e1e;
+      --red-lt:    #fde8e8;
+      --grey-1:    #f9fafb;
+      --grey-2:    #f3f4f6;
+      --grey-3:    #e5e7eb;
+      --grey-5:    #6b7280;
+      --grey-8:    #374151;
+      --grey-9:    #111827;
+      --radius:    8px;
+      --shadow:    0 1px 3px rgba(0,0,0,.10), 0 1px 2px rgba(0,0,0,.06);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      font-size: 15px;
+      color: var(--grey-9);
+      background: var(--grey-1);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────── */
+    .site-header {
+      background: #fff;
+      border-bottom: 1px solid var(--grey-3);
+      padding: 14px 32px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .site-header .badge {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      color: var(--blue);
+      background: var(--blue-lt);
+      border-radius: 4px;
+      padding: 2px 8px;
+    }
+    .site-header h1 {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--grey-9);
+    }
+
+    /* ── Layout ───────────────────────────────────────────────────── */
+    main {
+      max-width: 1180px;
+      margin: 28px auto;
+      padding: 0 24px;
+      display: grid;
+      grid-template-columns: 1fr 440px;
+      grid-template-rows: auto 1fr;
+      gap: 20px;
+    }
+    .col-full  { grid-column: 1 / -1; }
+    .col-left  { grid-column: 1; }
+    .col-right { grid-column: 2; }
+
+    /* ── Card ─────────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border: 1px solid var(--grey-3);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .card-head {
+      padding: 13px 20px;
+      border-bottom: 1px solid var(--grey-3);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .07em;
+      text-transform: uppercase;
+      color: var(--grey-5);
+    }
+    .card-body { padding: 22px 20px; }
+
+    /* ── Buttons ──────────────────────────────────────────────────── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      border: none;
+      transition: filter .15s;
+      white-space: nowrap;
+    }
+    .btn:hover  { filter: brightness(.92); }
+    .btn:active { filter: brightness(.85); }
+    .btn-primary   { background: var(--blue); color: #fff; }
+    .btn-secondary {
+      background: #fff;
+      color: var(--grey-8);
+      border: 1px solid var(--grey-3);
+    }
+    .btn-sm { padding: 7px 14px; font-size: 13px; }
+
+    /* ── Page content card ────────────────────────────────────────── */
+    .page-content .card-body {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 32px;
+      flex-wrap: wrap;
+    }
+    .page-copy h2 { font-size: 19px; font-weight: 600; margin-bottom: 6px; }
+    .page-copy p  { color: var(--grey-5); max-width: 520px; font-size: 14px; }
+
+    /* ── Consent panel ────────────────────────────────────────────── */
+    .consent-panel .card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+    .toggle-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .toggle-info h3 { font-size: 14px; font-weight: 600; margin-bottom: 2px; }
+    .toggle-info p  { font-size: 12px; color: var(--grey-5); line-height: 1.5; }
+
+    /* CSS toggle switch */
+    .toggle-wrap { flex-shrink: 0; padding-top: 2px; }
+    .toggle-wrap input { display: none; }
+    .toggle-wrap label {
+      display: block;
+      width: 44px;
+      height: 24px;
+      background: var(--grey-3);
+      border-radius: 12px;
+      position: relative;
+      cursor: pointer;
+      transition: background .2s;
+    }
+    .toggle-wrap label::after {
+      content: '';
+      position: absolute;
+      top: 3px; left: 3px;
+      width: 18px; height: 18px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,.25);
+      transition: left .18s;
+    }
+    .toggle-wrap input:checked + label           { background: var(--blue); }
+    .toggle-wrap input:checked + label::after    { left: 23px; }
+
+    hr.divider { border: none; border-top: 1px solid var(--grey-3); }
+
+    .consent-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .save-confirm {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--green);
+      opacity: 0;
+      transition: opacity .25s;
+    }
+    .save-confirm.visible { opacity: 1; }
+
+    /* ── Diagnostic panel ─────────────────────────────────────────── */
+    .diagnostic .card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .diag-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .06em;
+      text-transform: uppercase;
+      color: var(--grey-5);
+      margin-bottom: 10px;
+    }
+
+    .signal-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .signal-cell {
+      background: var(--grey-1);
+      border: 1px solid var(--grey-3);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .signal-key {
+      font-size: 10px;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      color: var(--grey-5);
+      margin-bottom: 3px;
+    }
+    .signal-val {
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .signal-val.granted { color: var(--green); }
+    .signal-val.denied  { color: var(--red); }
+
+    .cookie-line {
+      font-size: 13px;
+      line-height: 1.6;
+      word-break: break-word;
+    }
+    .cookie-line .lbl-present { color: var(--green); font-weight: 600; }
+    .cookie-line .lbl-absent  { color: var(--grey-5); font-weight: 600; }
+    .cookie-line code {
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 11px;
+      background: var(--grey-2);
+      padding: 1px 5px;
+      border-radius: 3px;
+    }
+
+    .call-log {
+      font-family: 'SFMono-Regular', Consolas, 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.75;
+      white-space: pre;
+      background: #0f172a;
+      color: #86efac;
+      border-radius: 6px;
+      padding: 12px 14px;
+      min-height: 90px;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    @media (max-width: 860px) {
+      main {
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+      }
+      .col-full, .col-left, .col-right { grid-column: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- GTM noscript — replace GTM-XXXXXXX and uncomment when deploying -->
+  <!--
+  <noscript>
+    <iframe src="https://www.googletagmanager.com/ns.html?id=GTM-XXXXXXX"
+      height="0" width="0" style="display:none;visibility:hidden"></iframe>
+  </noscript>
+  -->
+
+  <header class="site-header">
+    <span class="badge">PoC</span>
+    <h1>GA4 Advanced Consent Mode — No-CMP Demo</h1>
+  </header>
+
+  <main>
+
+    <!-- ── Page content ───────────────────────────────────────────── -->
+    <section class="col-full page-content">
+      <div class="card">
+        <div class="card-head">Page Content</div>
+        <div class="card-body">
+          <div class="page-copy">
+            <h2>PoC Storefront</h2>
+            <p>
+              Placeholder page for validating GA4 Advanced Consent Mode without a CMP.
+              Analytics and advertising signals respond to the preferences saved in the
+              consent panel — all four ACM signals are denied by default on a fresh visit.
+            </p>
+          </div>
+          <button class="btn btn-primary" id="btn-conversion">
+            &#9654;&nbsp; Simulate conversion event
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Consent panel ──────────────────────────────────────────── -->
+    <section class="col-left consent-panel">
+      <div class="card">
+        <div class="card-head">Consent Preferences</div>
+        <div class="card-body">
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <h3>Analytics</h3>
+              <p>Session measurement, pageviews, conversion reporting</p>
+            </div>
+            <div class="toggle-wrap">
+              <input type="checkbox" id="tog-analytics">
+              <label for="tog-analytics" aria-label="Analytics consent"></label>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="toggle-row">
+            <div class="toggle-info">
+              <h3>Advertising</h3>
+              <p>Remarketing, personalised ads, cross-site tracking</p>
+            </div>
+            <div class="toggle-wrap">
+              <input type="checkbox" id="tog-advertising">
+              <label for="tog-advertising" aria-label="Advertising consent"></label>
+            </div>
+          </div>
+
+          <hr class="divider">
+
+          <div class="consent-actions">
+            <button class="btn btn-primary btn-sm"   id="btn-save">Save preferences</button>
+            <button class="btn btn-secondary btn-sm" id="btn-reset">Reset consent</button>
+            <span class="save-confirm" id="msg-confirm">&#10003; Saved</span>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Diagnostic panel ───────────────────────────────────────── -->
+    <section class="col-right diagnostic">
+      <div class="card">
+        <div class="card-head">Diagnostic</div>
+        <div class="card-body">
+
+          <div>
+            <div class="diag-label">Consent signal state</div>
+            <div class="signal-grid">
+              <div class="signal-cell">
+                <div class="signal-key">analytics_storage</div>
+                <div class="signal-val denied" id="diag-analytics_storage">denied</div>
+              </div>
+              <div class="signal-cell">
+                <div class="signal-key">ad_storage</div>
+                <div class="signal-val denied" id="diag-ad_storage">denied</div>
+              </div>
+              <div class="signal-cell">
+                <div class="signal-key">ad_user_data</div>
+                <div class="signal-val denied" id="diag-ad_user_data">denied</div>
+              </div>
+              <div class="signal-cell">
+                <div class="signal-key">ad_personalization</div>
+                <div class="signal-val denied" id="diag-ad_personalization">denied</div>
+              </div>
+            </div>
+          </div>
+
+          <div>
+            <div class="diag-label">Cookie: poc_consent</div>
+            <div class="cookie-line" id="diag-cookie"></div>
+          </div>
+
+          <div>
+            <div class="diag-label">gtag() consent call log</div>
+            <pre class="call-log" id="diag-log"></pre>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============================================================
+       UI logic — runs after DOM is ready
+       ============================================================ -->
+  <script>
+    /* ── Diagnostic renderer ─────────────────────────────────────── */
+    function _renderDiag() {
+      var signals = ['analytics_storage', 'ad_storage', 'ad_user_data', 'ad_personalization'];
+      signals.forEach(function (s) {
+        var el = document.getElementById('diag-' + s);
+        if (!el) return;
+        var val = window._poc.consentState[s];
+        el.textContent = val;
+        el.className = 'signal-val ' + val;
+      });
+
+      var cookieEl = document.getElementById('diag-cookie');
+      if (cookieEl) {
+        var c = _readCookie('poc_consent');
+        if (c) {
+          var safe = JSON.stringify(c)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+          cookieEl.innerHTML =
+            '<span class="lbl-present">Present</span> &mdash; <code>' + safe + '</code>';
+        } else {
+          cookieEl.innerHTML = '<span class="lbl-absent">Not set</span>';
+        }
+      }
+
+      var logEl = document.getElementById('diag-log');
+      if (logEl) {
+        if (window._poc.callLog.length === 0) {
+          logEl.textContent = '— no consent calls yet —';
+        } else {
+          logEl.textContent = window._poc.callLog.map(function (e) {
+            return '[' + e.ts + '] gtag(\'consent\', \'' + e.sub + '\', ' +
+                   JSON.stringify(e.params) + ')';
+          }).join('\n');
+          logEl.scrollTop = logEl.scrollHeight;
+        }
+      }
+    }
+
+    /* ── Initialise UI on DOM ready ──────────────────────────────── */
+    document.addEventListener('DOMContentLoaded', function () {
+      /* Set toggle state to match stored cookie */
+      var stored = _readCookie('poc_consent');
+      if (stored) {
+        document.getElementById('tog-analytics').checked =
+          stored.analytics_storage === 'granted';
+        document.getElementById('tog-advertising').checked =
+          stored.ad_storage === 'granted';
+      }
+
+      /* ── Save preferences ─────────────────────────────────────── */
+      document.getElementById('btn-save').addEventListener('click', function () {
+        var analyticsVal   = document.getElementById('tog-analytics').checked
+                             ? 'granted' : 'denied';
+        var advertisingVal = document.getElementById('tog-advertising').checked
+                             ? 'granted' : 'denied';
+
+        gtag('consent', 'update', {
+          analytics_storage:  analyticsVal,
+          ad_storage:         advertisingVal,
+          ad_user_data:       advertisingVal,
+          ad_personalization: advertisingVal
+        });
+
+        _writeCookie('poc_consent', {
+          analytics_storage:  analyticsVal,
+          ad_storage:         advertisingVal,
+          ad_user_data:       advertisingVal,
+          ad_personalization: advertisingVal
+        }, 365 * 24 * 3600);
+
+        _renderDiag();
+
+        var msg = document.getElementById('msg-confirm');
+        msg.classList.add('visible');
+        setTimeout(function () { msg.classList.remove('visible'); }, 2500);
+      });
+
+      /* ── Reset consent ────────────────────────────────────────── */
+      document.getElementById('btn-reset').addEventListener('click', function () {
+        _deleteCookie('poc_consent');
+        location.reload();
+      });
+
+      /* ── Simulate conversion event ────────────────────────────── */
+      document.getElementById('btn-conversion').addEventListener('click', function () {
+        dataLayer.push({ event: 'poc_conversion', value: 1 });
+      });
+
+      /* Initial render with state set by the consent default block */
+      _renderDiag();
+    });
+  </script>
+
+</body>
+</html>
